@@ -19,6 +19,7 @@ public:
   const interface_data &get_interface_data() const;
 
 private:
+  QString file_name_;
   CXIndex index_;
   CXTranslationUnit unit_;
   interface_data data_;

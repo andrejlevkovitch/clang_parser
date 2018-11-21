@@ -2,7 +2,11 @@
 
 #pragma once
 
-class simple {
+#include "simple_class_template.hpp"
+
+namespace general {
+namespace my_namespace {
+class simple : simple_class_template<int, float> {
 public:
   simple(int alfa);
   void realized_method();
@@ -16,4 +20,6 @@ private:
 
 private:
   int variable_;
+};
+};
 };
