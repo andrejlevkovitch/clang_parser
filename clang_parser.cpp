@@ -70,13 +70,44 @@ clang_parser::clang_parser(const QString &file_name,
     break;
   }
 
+  // here we put all interface data. First node will be invalid, and intakes
+  // only header file
   std::list<interface_data> list_of_interfaces;
-
-  ::QStringList namespaces_list{};
+  list_of_interfaces.push_back(interface_data{});
+  list_of_interfaces.back().headers.append(file_name);
 
   // we set namespaces_list as data, becose we wont to now full class names
   auto root = ::clang_getTranslationUnitCursor(unit_);
-  ::clang_visitChildren(root, general_visitor, &namespaces_list);
+  ::clang_visitChildren(root, general_visitor, &list_of_interfaces);
+
+  // because first element is void
+  list_of_interfaces.erase(std::begin(list_of_interfaces));
+
+  for (auto &i : list_of_interfaces) {
+    std::cout << "\nclass:\n";
+    std::cout << "  " << i.interface_class.first().toStdString() << std::endl;
+
+    if (!i.inheritance_classes.isEmpty()) {
+      std::cout << "  inheritace:\n";
+      for (auto &j : i.inheritance_classes) {
+        std::cout << "    " << j.toStdString() << std::endl;
+      }
+    }
+
+    if (!i.abstract_methods.isEmpty()) {
+      std::cout << "  abs mehtods:\n";
+      for (auto &j : i.abstract_methods) {
+        std::cout << "    " << j.arg(' ').toStdString() << std::endl;
+      }
+    }
+
+    if (!i.realized_methods.isEmpty()) {
+      std::cout << "  realized mehtods:\n";
+      for (auto &j : i.realized_methods) {
+        std::cout << "    " << j.arg(' ').toStdString() << std::endl;
+      }
+    }
+  }
 }
 
 clang_parser::~clang_parser() {
@@ -90,13 +121,7 @@ const interface_data &clang_parser::get_interface_data() const { return data_; }
                                      ::CXClientData data) {
   switch (::clang_getCursorKind(cursor)) {
   case ::CXCursor_Namespace: {
-    // get name of namespace and put it in data
-    QString cursor_spelling = get_spelling_string(cursor);
-    static_cast<QStringList *>(data)->append(cursor_spelling);
-
     ::clang_visitChildren(cursor, general_visitor, data);
-
-    static_cast<QStringList *>(data)->removeLast();
   } break;
   case ::CXCursor_ClassDecl:
   case ::CXCursor_ClassTemplate: {
@@ -105,29 +130,36 @@ const interface_data &clang_parser::get_interface_data() const { return data_; }
     ::clang_getFileLocation(location, &file, nullptr, nullptr, nullptr);
     QString file_name = get_spelling_string(file);
     // here we have to check input file, because clang parse all includes files
-    //  if (file_name != QString{"simple_class_declaration.hpp"}) {
-    //    break;
-    //  }
+    // if (file_name != QString{"simple_class_declaration.hpp"}) {
+    //  break;
+    //}
 
-    QStringList *namespaces_list = static_cast<QStringList *>(data);
-
-    QString only_class_name = get_spelling_string(cursor);
-    namespaces_list->append(only_class_name);
+    // here we find full name of parsing class
+    CXCursor temp = cursor;
+    QStringList full_class_name;
+    do {
+      full_class_name.push_front(get_spelling_string(temp));
+      temp = ::clang_getCursorSemanticParent(temp);
+    } while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit);
 
     // if it is template we find all template parameters
     if (::clang_getCursorKind(cursor) == CXCursor_ClassTemplate) {
       ::QStringList templates;
       ::clang_visitChildren(cursor, template_visitor, &templates);
-      namespaces_list->last() += '<' + templates.join(',') + '>';
+      full_class_name.last() += '<' + templates.join(',') + '>';
     }
 
-    QString full_class_name = namespaces_list->join("::");
+    // QString full_class_name = namespaces_list->join("::");
 
-    std::cout << "\nclass: " << full_class_name.toStdString() << std::endl;
+    // std::cout << "\nclass: " << full_class_name.toStdString() << std::endl;
+
+    auto interfase_list = reinterpret_cast<std::list<interface_data> *>(data);
+    interfase_list->push_back(interfase_list->front());
+    interfase_list->back().interface_class.push_back(
+        full_class_name.join("::"));
 
     ::clang_visitChildren(cursor, class_visitor, data);
 
-    namespaces_list->removeLast();
   } break;
   default:
     break;
@@ -139,33 +171,28 @@ const interface_data &clang_parser::get_interface_data() const { return data_; }
                                    ::CXClientData data) {
   switch (::clang_getCursorKind(cursor)) {
   case ::CXCursor_CXXMethod: {
-    ::QString type = "pure";
-    if (::clang_CXXMethod_isPureVirtual(cursor)) {
-      type = "pure";
-    } else {
-      type = "realized";
-    }
-
+    auto interfase_list = reinterpret_cast<std::list<interface_data> *>(data);
     ::QString method_name = get_spelling_string(cursor);
 
     auto cursor_type = ::clang_getCursorType(cursor);
     ::QString signature = get_spelling_string(cursor_type);
 
-    std::cout << "  type: " << type.toStdString() << std::endl;
-    std::cout << "  name: " << method_name.toStdString() << std::endl;
-    std::cout << "  signature: " << signature.toStdString() << std::endl
-              << std::endl;
+    QString new_method =
+        signature.insert(signature.indexOf('('), "%1" + method_name);
 
+    if (::clang_CXXMethod_isPureVirtual(cursor)) {
+      interfase_list->back().abstract_methods << new_method;
+    } else {
+      interfase_list->back().realized_methods << new_method;
+    }
   } break;
   case ::CXCursor_CXXBaseSpecifier: {
+    auto interfase_list = reinterpret_cast<std::list<interface_data> *>(data);
     CXType cursor_type =
         ::clang_getCursorType(::clang_getCursorDefinition(cursor));
     QString inheritace_class = get_spelling_string(cursor_type);
 
-    std::cout << "  inheritance: " << inheritace_class.toStdString()
-              << std::endl
-              << std::endl;
-
+    interfase_list->back().inheritance_classes << inheritace_class;
   } break;
   default:
     break;
