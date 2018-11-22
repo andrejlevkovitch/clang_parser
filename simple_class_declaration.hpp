@@ -4,6 +4,14 @@
 
 #include "simple_class_template.hpp"
 
+class only_def;
+
+class other_class {
+public:
+private:
+  int some_func() const;
+};
+
 namespace general {
 namespace my_namespace {
 class simple : simple_class_template<int, float> {

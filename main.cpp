@@ -8,9 +8,20 @@ int main(int argc, char *argv[]) {
   if (argc > 1) {
     //  ::QCoreApplication app(argc, argv);
 
-    clang_parser clang_parser{argv[1]};
+    // add included directories
+    QStringList includes;
+    for (int i{2}; i < argc; ++i) {
+      includes << argv[i];
+    }
 
-    std::cout << "exit\n";
+    clang_parser clang_parser{};
+    auto interfaces = clang_parser.create_description_from(argv[1], includes);
+
+    for (const auto &i : interfaces) {
+      clang_parser.generate_xml_file(
+          i, QDir{"/home/levkovich/Public/temp/interface_description_creator/"
+                  "xmls"});
+    }
 
     //  return app.exec();
     return EXIT_SUCCESS;
