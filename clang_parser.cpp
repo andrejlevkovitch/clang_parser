@@ -5,7 +5,6 @@
 #include <QFile>
 #include <QTextStream>
 #include <clang-c/Index.h>
-#include <iostream>
 #include <stdexcept>
 
 #define INTERF_SCHEMA ":/component_schema.xsd"
@@ -33,6 +32,11 @@ QString get_spelling_string(const CXFile file);
                                    ::CXClientData data);
 ::CXChildVisitResult template_visitor(::CXCursor cursor, ::CXCursor parent,
                                       ::CXClientData data);
+// this function neded if we want found inheritance template, from other
+// template
+::CXChildVisitResult find_inheritance_template(::CXCursor cursor,
+                                               ::CXCursor parent,
+                                               ::CXClientData data);
 
 // this class automatic free memory of translation unit and index
 struct lock_ast {
@@ -230,51 +234,57 @@ bool clang_parser::generate_xml_file(const interface_description &description,
                                      ::CXClientData data) {
   switch (::clang_getCursorKind(cursor)) {
   case ::CXCursor_Namespace: {
-    ::clang_visitChildren(cursor, general_visitor, data);
+    // if we in system header, then we don't visit childrens
+    if (!::clang_Location_isInSystemHeader(::clang_getCursorLocation(cursor))) {
+      ::clang_visitChildren(cursor, general_visitor, data);
+    }
   } break;
   case ::CXCursor_ClassDecl:
   case ::CXCursor_ClassTemplate:
   case ::CXCursor_StructDecl: {
-    ::CXSourceLocation location = ::clang_getCursorLocation(cursor);
-    ::CXFile file;
-    ::clang_getFileLocation(location, &file, nullptr, nullptr, nullptr);
-    QString file_name = get_spelling_string(file);
-    // here we have to check input file, because clang parse all includes
-    // files
-    auto interfase_list =
-        reinterpret_cast<std::list<interface_description> *>(data);
-    if (file_name != interfase_list->front().header) {
-      break;
+    // if we in system header, then we don't visit childrens
+    if (!::clang_Location_isInSystemHeader(::clang_getCursorLocation(cursor))) {
+      ::CXSourceLocation location = ::clang_getCursorLocation(cursor);
+      ::CXFile file;
+      ::clang_getFileLocation(location, &file, nullptr, nullptr, nullptr);
+      QString file_name = get_spelling_string(file);
+      // here we have to check input file, because clang parse all includes
+      // files
+      auto interfase_list =
+          reinterpret_cast<std::list<interface_description> *>(data);
+      if (file_name != interfase_list->front().header) {
+        break;
+      }
+
+      // here we find full name of parsing class
+      CXCursor temp = ::clang_getCursorSemanticParent(cursor);
+      QStringList full_class_name;
+      full_class_name.push_front(get_spelling_string(cursor));
+      while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit) {
+        full_class_name.push_front(get_spelling_string(temp));
+        temp = ::clang_getCursorSemanticParent(temp);
+      }
+
+      // if it is template we find all template parameters
+      if (::clang_getCursorKind(cursor) == CXCursor_ClassTemplate) {
+        ::QStringList templates;
+        ::clang_visitChildren(cursor, template_visitor, &templates);
+        full_class_name.last() += '<' + templates.join(',') + '>';
+      }
+
+      // set full name of class
+      interfase_list->push_back(interfase_list->front());
+      interfase_list->back().interface_class = full_class_name.join("::");
+
+      ::clang_visitChildren(cursor, class_visitor, data);
+
+      // if this was be only predefinition of class we erase this
+      if (interfase_list->back().inheritance_classes.isEmpty() &&
+          interfase_list->back().methods.empty()) {
+        auto for_erase = interfase_list->end();
+        interfase_list->erase(--for_erase);
+      }
     }
-
-    // here we find full name of parsing class
-    CXCursor temp = cursor;
-    QStringList full_class_name;
-    do {
-      full_class_name.push_front(get_spelling_string(temp));
-      temp = ::clang_getCursorSemanticParent(temp);
-    } while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit);
-
-    // if it is template we find all template parameters
-    if (::clang_getCursorKind(cursor) == CXCursor_ClassTemplate) {
-      ::QStringList templates;
-      ::clang_visitChildren(cursor, template_visitor, &templates);
-      full_class_name.last() += '<' + templates.join(',') + '>';
-    }
-
-    // set full name of class
-    interfase_list->push_back(interfase_list->front());
-    interfase_list->back().interface_class = full_class_name.join("::");
-
-    ::clang_visitChildren(cursor, class_visitor, data);
-
-    // if this was be only predefinition of class we erase this
-    if (interfase_list->back().inheritance_classes.isEmpty() &&
-        interfase_list->back().methods.empty()) {
-      auto for_erase = interfase_list->end();
-      interfase_list->erase(--for_erase);
-    }
-
   } break;
   default:
     break;
@@ -308,6 +318,23 @@ bool clang_parser::generate_xml_file(const interface_description &description,
     CXType cursor_type =
         ::clang_getCursorType(::clang_getCursorDefinition(cursor));
     QString inheritace_class = get_spelling_string(cursor_type);
+
+    // if main class is temlate, which inheritance template, and set for him
+    // template parameter, then we can not get instance of this class. So for
+    // full place, I get them string of this class as and search it in the tree
+    if (inheritace_class.isEmpty()) {
+      CXCursor temp = ::clang_getCursorSemanticParent(parent);
+      while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit) {
+        temp = ::clang_getCursorSemanticParent(temp);
+        if (::clang_getCursorKind(temp) == ::CXCursor_FirstInvalid) {
+          break;
+        }
+      }
+
+      inheritace_class =
+          get_spelling_string(cursor).section('<', 0, 0).section("::", -1);
+      ::clang_visitChildren(temp, find_inheritance_template, &inheritace_class);
+    }
 
     interfase_list->back().inheritance_classes << inheritace_class;
   } break;
@@ -349,4 +376,44 @@ QString get_spelling_string(const CXFile file) {
   retval = ::clang_getCString(clang_cx_str);
   ::clang_disposeString(clang_cx_str);
   return retval;
+}
+
+::CXChildVisitResult find_inheritance_template(::CXCursor cursor,
+                                               ::CXCursor parent,
+                                               ::CXClientData data) {
+  switch (::clang_getCursorKind(cursor)) {
+  case ::CXCursor_Namespace: {
+    // if we in system header, then we don't visit childrens
+    if (!::clang_Location_isInSystemHeader(::clang_getCursorLocation(cursor))) {
+      ::clang_visitChildren(cursor, find_inheritance_template, data);
+    }
+  } break;
+  case ::CXCursor_ClassTemplate: {
+    // if we in system header, then we don't visit childrens
+    if (!::clang_Location_isInSystemHeader(::clang_getCursorLocation(cursor))) {
+      auto class_name = reinterpret_cast<QString *>(data);
+
+      // if it is searched class, we return this
+      if (class_name == get_spelling_string(cursor)) {
+        CXCursor temp = ::clang_getCursorSemanticParent(cursor);
+        // we have to get name with all namespaces
+        QStringList full_class_name{*class_name};
+        while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit) {
+          full_class_name.push_front(get_spelling_string(temp));
+          temp = ::clang_getCursorSemanticParent(temp);
+        }
+        ::QStringList templates;
+        ::clang_visitChildren(cursor, template_visitor, &templates);
+        full_class_name.last() += '<' + templates.join(',') + '>';
+
+        *class_name = full_class_name.join("::");
+      }
+
+      ::clang_visitChildren(cursor, find_inheritance_template, data);
+    }
+  } break;
+  default:
+    break;
+  }
+  return ::CXChildVisit_Continue;
 }

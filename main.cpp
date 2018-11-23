@@ -17,10 +17,11 @@ int main(int argc, char *argv[]) {
     clang_parser clang_parser{};
     auto interfaces = clang_parser.create_description_from(argv[1], includes);
 
-    for (const auto &i : interfaces) {
+    for (auto &i : interfaces) {
+      i.packages << "DS";
       clang_parser.generate_xml_file(
-          i, QDir{"/home/levkovich/Public/temp/interface_description_creator/"
-                  "xmls"});
+          i, QDir{"/home/levkovich/Public/temp/Platformv2.0/DSControll/"
+                  "component_creator/xmls"});
     }
 
     //  return app.exec();
