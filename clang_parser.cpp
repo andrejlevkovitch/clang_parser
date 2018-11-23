@@ -38,6 +38,9 @@ QString get_spelling_string(const CXFile file);
                                                ::CXCursor parent,
                                                ::CXClientData data);
 
+::CXChildVisitResult param_visitor(::CXCursor cursor, ::CXCursor parent,
+                                   ::CXClientData data);
+
 // this class automatic free memory of translation unit and index
 struct lock_ast {
   lock_ast() : index{clang_createIndex(0, 1)} {};
@@ -263,6 +266,9 @@ bool clang_parser::generate_xml_file(const interface_description &description,
       while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit) {
         full_class_name.push_front(get_spelling_string(temp));
         temp = ::clang_getCursorSemanticParent(temp);
+        if (::clang_getCursorKind(temp) == ::CXCursor_FirstInvalid) {
+          break;
+        }
       }
 
       // if it is template we find all template parameters
@@ -295,6 +301,23 @@ bool clang_parser::generate_xml_file(const interface_description &description,
 ::CXChildVisitResult class_visitor(::CXCursor cursor, ::CXCursor parent,
                                    ::CXClientData data) {
   switch (::clang_getCursorKind(cursor)) {
+  case ::CXCursor_Constructor: {
+    method_struct method;
+    method.type = method_struct::type::realized;
+    method.name = get_spelling_string(cursor);
+
+    QStringList params;
+    ::clang_visitChildren(cursor, param_visitor, &params);
+    if (!params.isEmpty()) {
+      method.signature = '(' + params.join(" ,") + ')';
+    } else {
+      method.signature = "()";
+    }
+
+    auto interfase_list =
+        reinterpret_cast<std::list<interface_description> *>(data);
+    interfase_list->back().methods.push_back(method);
+  } break;
   case ::CXCursor_CXXMethod: {
     method_struct method;
     if (::clang_CXXMethod_isPureVirtual(cursor)) {
@@ -307,6 +330,13 @@ bool clang_parser::generate_xml_file(const interface_description &description,
 
     CXType cursor_type = ::clang_getCursorType(cursor);
     method.signature = get_spelling_string(cursor_type);
+
+    QStringList params;
+    ::clang_visitChildren(cursor, param_visitor, &params);
+    if (!params.isEmpty()) {
+      method.signature =
+          method.signature.section('(', 0, 0) + '(' + params.join(" ,") + ')';
+    }
 
     auto interfase_list =
         reinterpret_cast<std::list<interface_description> *>(data);
@@ -414,6 +444,19 @@ QString get_spelling_string(const CXFile file) {
   } break;
   default:
     break;
+  }
+  return ::CXChildVisit_Continue;
+}
+
+::CXChildVisitResult param_visitor(::CXCursor cursor, ::CXCursor parent,
+                                   ::CXClientData data) {
+  if (::clang_getCursorKind(cursor) == ::CXCursor_ParmDecl) {
+    CXType type = ::clang_getCursorType(cursor);
+    QString param = get_spelling_string(type);
+
+    param += ' ' + get_spelling_string(cursor);
+    // we store all arguments in list, and take it for template class
+    static_cast<QStringList *>(data)->append(param);
   }
   return ::CXChildVisit_Continue;
 }

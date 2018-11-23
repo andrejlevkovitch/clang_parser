@@ -5,23 +5,21 @@
 #include <iostream>
 
 int main(int argc, char *argv[]) {
-  if (argc > 1) {
+  if (argc > 2) {
     //  ::QCoreApplication app(argc, argv);
 
     // add included directories
     QStringList includes;
-    for (int i{2}; i < argc; ++i) {
+    for (int i{3}; i < argc; ++i) {
       includes << argv[i];
     }
 
     clang_parser clang_parser{};
-    auto interfaces = clang_parser.create_description_from(argv[1], includes);
+    auto interfaces = clang_parser.create_description_from(argv[2], includes);
 
     for (auto &i : interfaces) {
       i.packages << "DS";
-      clang_parser.generate_xml_file(
-          i, QDir{"/home/levkovich/Public/temp/Platformv2.0/DSControll/"
-                  "component_creator/xmls"});
+      clang_parser.generate_xml_file(i, QDir{argv[1]});
     }
 
     //  return app.exec();
