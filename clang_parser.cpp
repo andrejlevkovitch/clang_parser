@@ -267,8 +267,26 @@ bool clang_parser::generate_xml_file(const interface_description &description,
       ::clang_visitChildren(cursor, general_visitor, data);
     } break;
     case ::CXCursor_ClassDecl:
-    case ::CXCursor_ClassTemplate:
     case ::CXCursor_StructDecl: {
+      auto interfase_list =
+          reinterpret_cast<std::list<interface_description> *>(data);
+
+      ::QString full_class_name = get_spelling_string(
+          ::clang_getCursorType(::clang_getCursorDefinition(cursor)));
+
+      // if it is predeclared class
+      if (full_class_name.isEmpty()) {
+        break;
+      }
+
+      interfase_list->push_back(interfase_list->front());
+      // set full name of class
+      interfase_list->back().interface_class = full_class_name;
+
+      ::clang_visitChildren(cursor, class_visitor, data);
+    } break;
+    // if this is template, then we can not get definition of it
+    case ::CXCursor_ClassTemplate: {
       auto interfase_list =
           reinterpret_cast<std::list<interface_description> *>(data);
 
@@ -296,13 +314,6 @@ bool clang_parser::generate_xml_file(const interface_description &description,
       interfase_list->back().interface_class = full_class_name.join("::");
 
       ::clang_visitChildren(cursor, class_visitor, data);
-
-      // if this was be only predefinition of class we erase this
-      if (interfase_list->back().inheritance_classes.isEmpty() &&
-          interfase_list->back().methods.empty()) {
-        auto for_erase = interfase_list->end();
-        interfase_list->erase(--for_erase);
-      }
     } break;
     default:
       break;
