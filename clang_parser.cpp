@@ -284,6 +284,13 @@ bool clang_parser::generate_xml_file(const interface_description &description,
       interfase_list->back().interface_class = full_class_name;
 
       ::clang_visitChildren(cursor, class_visitor, data);
+
+      // if class is empty, then remove it from list
+      if (interfase_list->back().inheritance_classes.isEmpty() &&
+          interfase_list->back().methods.empty()) {
+        auto for_erase = interfase_list->end();
+        interfase_list->erase(--for_erase);
+      }
     } break;
     // if this is template, then we can not get definition of it
     case ::CXCursor_ClassTemplate: {
@@ -314,6 +321,13 @@ bool clang_parser::generate_xml_file(const interface_description &description,
       interfase_list->back().interface_class = full_class_name.join("::");
 
       ::clang_visitChildren(cursor, class_visitor, data);
+
+      // if class is empty, then remove it from list
+      if (interfase_list->back().inheritance_classes.isEmpty() &&
+          interfase_list->back().methods.empty()) {
+        auto for_erase = interfase_list->end();
+        interfase_list->erase(--for_erase);
+      }
     } break;
     default:
       break;
