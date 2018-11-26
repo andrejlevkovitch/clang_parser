@@ -25,6 +25,7 @@
 QString get_spelling_string(const CXCursor cursor);
 QString get_spelling_string(const CXType type);
 QString get_spelling_string(const CXFile file);
+/**\return name of file with string and column*/
 QString get_spelling_string(const CXSourceLocation location);
 
 ::CXChildVisitResult general_visitor(::CXCursor cursor, ::CXCursor parent,
@@ -67,7 +68,7 @@ clang_parser::create_description_from(const QString &file_name,
   std::vector<std::string> includes;
   includes.resize(include_directories.size() + 2);
   const char **args = new const char *[includes.size()]();
-  for (unsigned i{}; i < include_directories.size(); ++i) {
+  for (int i{}; i < include_directories.size(); ++i) {
     includes[i] = "-I" + include_directories[i].toStdString();
     args[i] = includes[i].c_str();
   }
@@ -112,7 +113,7 @@ clang_parser::create_description_from(const QString &file_name,
 
   // here we get all warnings and errors while compile
   auto root = ::clang_getTranslationUnitCursor(locker.unit);
-  for (int i{}; i < ::clang_getNumDiagnostics(locker.unit); ++i) {
+  for (unsigned i{}; i < ::clang_getNumDiagnostics(locker.unit); ++i) {
     CXDiagnostic diagnostic = ::clang_getDiagnostic(locker.unit, i);
 
     // get type of diagnostic (warning, error, ...)

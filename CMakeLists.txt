@@ -4,7 +4,10 @@ cmake_minimum_required(VERSION "3.12")
 
 project(interface_description_creator)
 
-find_package(Qt5 COMPONENTS Core Widgets Xml XmlPatterns REQUIRED)
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -Wall")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -g -Wextra")
+
+find_package(Qt5 COMPONENTS Core Widgets Xml REQUIRED)
 find_package(Clang REQUIRED)
 
 set(IDC_SRC
@@ -17,4 +20,4 @@ target_link_libraries(IDC PUBLIC ${PROJECT_NAME} Qt5::Core Qt5::Widgets)
 add_library(${PROJECT_NAME} ${IDC_SRC})
 target_compile_options(${PROJECT_NAME} PRIVATE "-std=c++11")
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CLANG_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PUBLIC Qt5::Core Qt5::Widgets Qt5::Xml Qt5::XmlPatterns libclang)
+target_link_libraries(${PROJECT_NAME} PUBLIC Qt5::Core Qt5::Widgets Qt5::Xml libclang)
