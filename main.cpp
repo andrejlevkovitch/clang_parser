@@ -3,6 +3,7 @@
 #include "clang_parser.hpp"
 #include <QApplication>
 #include <iostream>
+#include <stdexcept>
 
 int main(int argc, char *argv[]) {
   if (argc > 2) {
@@ -15,7 +16,13 @@ int main(int argc, char *argv[]) {
     }
 
     clang_parser clang_parser{};
-    auto interfaces = clang_parser.create_description_from(argv[2], includes);
+    std::list<interface_description> interfaces;
+    try {
+      interfaces = clang_parser.create_description_from(argv[2], includes);
+    } catch (const std::runtime_error &exc) {
+      std::cerr << exc.what() << std::endl;
+      return EXIT_FAILURE;
+    }
 
     for (auto &i : interfaces) {
       i.packages << "DS";

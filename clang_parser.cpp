@@ -25,6 +25,7 @@
 QString get_spelling_string(const CXCursor cursor);
 QString get_spelling_string(const CXType type);
 QString get_spelling_string(const CXFile file);
+QString get_spelling_string(const CXSourceLocation location);
 
 ::CXChildVisitResult general_visitor(::CXCursor cursor, ::CXCursor parent,
                                      ::CXClientData data);
@@ -43,7 +44,7 @@ QString get_spelling_string(const CXFile file);
 
 // this class automatic free memory of translation unit and index
 struct lock_ast {
-  lock_ast() : index{clang_createIndex(0, 1)} {};
+  lock_ast() : index{clang_createIndex(0, 0)} {};
   ~lock_ast() {
     ::clang_disposeTranslationUnit(unit);
     ::clang_disposeIndex(index);
@@ -64,17 +65,15 @@ clang_parser::create_description_from(const QString &file_name,
 
   // add includes directories for clang
   std::vector<std::string> includes;
-  includes.resize(include_directories.size() + 3);
+  includes.resize(include_directories.size() + 2);
   const char **args = new const char *[includes.size()]();
   for (unsigned i{}; i < include_directories.size(); ++i) {
     includes[i] = "-I" + include_directories[i].toStdString();
     args[i] = includes[i].c_str();
   }
   // set c++ compiler
-  includes[includes.size() - 3] = "-c";
   includes[includes.size() - 2] = "-x";
   includes[includes.size() - 1] = "c++";
-  args[includes.size() - 3] = includes[includes.size() - 3].c_str();
   args[includes.size() - 2] = includes[includes.size() - 2].c_str();
   args[includes.size() - 1] = includes[includes.size() - 1].c_str();
 
@@ -111,7 +110,32 @@ clang_parser::create_description_from(const QString &file_name,
   list_of_interfaces.push_back(interface_description{});
   list_of_interfaces.back().header = file_name;
 
+  // here we get all warnings and errors while compile
   auto root = ::clang_getTranslationUnitCursor(locker.unit);
+  for (int i{}; i < ::clang_getNumDiagnostics(locker.unit); ++i) {
+    CXDiagnostic diagnostic = ::clang_getDiagnostic(locker.unit, i);
+
+    // get type of diagnostic (warning, error, ...)
+    switch (::clang_getDiagnosticSeverity(diagnostic)) {
+    case CXDiagnostic_Fatal:
+    case CXDiagnostic_Error: {
+      auto location = ::clang_getDiagnosticLocation(diagnostic);
+
+      auto output_str = ::clang_getDiagnosticSpelling(diagnostic);
+      QString error =
+          get_spelling_string(location) + '\n' + clang_getCString(output_str);
+      ::clang_disposeString(output_str);
+
+      ::clang_disposeDiagnostic(diagnostic);
+      throw std::runtime_error{error.toStdString()};
+      break;
+    }
+    default:
+      ::clang_disposeDiagnostic(diagnostic);
+      break;
+    }
+  }
+
   ::clang_visitChildren(root, general_visitor, &list_of_interfaces);
 
   // because first element is void
@@ -235,29 +259,17 @@ bool clang_parser::generate_xml_file(const interface_description &description,
 
 ::CXChildVisitResult general_visitor(::CXCursor cursor, ::CXCursor parent,
                                      ::CXClientData data) {
-  switch (::clang_getCursorKind(cursor)) {
-  case ::CXCursor_Namespace: {
-    // if we in system header, then we don't visit childrens
-    if (!::clang_Location_isInSystemHeader(::clang_getCursorLocation(cursor))) {
+  // only if it is file, which we set for compile, we parse it
+  if (::clang_Location_isFromMainFile(::clang_getCursorLocation(cursor))) {
+    switch (::clang_getCursorKind(cursor)) {
+    case ::CXCursor_Namespace: {
       ::clang_visitChildren(cursor, general_visitor, data);
-    }
-  } break;
-  case ::CXCursor_ClassDecl:
-  case ::CXCursor_ClassTemplate:
-  case ::CXCursor_StructDecl: {
-    // if we in system header, then we don't visit childrens
-    if (!::clang_Location_isInSystemHeader(::clang_getCursorLocation(cursor))) {
-      ::CXSourceLocation location = ::clang_getCursorLocation(cursor);
-      ::CXFile file;
-      ::clang_getFileLocation(location, &file, nullptr, nullptr, nullptr);
-      QString file_name = get_spelling_string(file);
-      // here we have to check input file, because clang parse all includes
-      // files
+    } break;
+    case ::CXCursor_ClassDecl:
+    case ::CXCursor_ClassTemplate:
+    case ::CXCursor_StructDecl: {
       auto interfase_list =
           reinterpret_cast<std::list<interface_description> *>(data);
-      if (file_name != interfase_list->front().header) {
-        break;
-      }
 
       // here we find full name of parsing class
       CXCursor temp = ::clang_getCursorSemanticParent(cursor);
@@ -290,10 +302,10 @@ bool clang_parser::generate_xml_file(const interface_description &description,
         auto for_erase = interfase_list->end();
         interfase_list->erase(--for_erase);
       }
+    } break;
+    default:
+      break;
     }
-  } break;
-  default:
-    break;
   }
   return ::CXChildVisit_Continue;
 }
@@ -459,4 +471,17 @@ QString get_spelling_string(const CXFile file) {
     static_cast<QStringList *>(data)->append(param);
   }
   return ::CXChildVisit_Continue;
+}
+
+QString get_spelling_string(const CXSourceLocation location) {
+  QString retval;
+  ::CXFile file{};
+  unsigned line{};
+  unsigned column{};
+  ::clang_getSpellingLocation(location, &file, &line, &column, nullptr);
+  auto str = ::clang_getFileName(file);
+  retval = QString{::clang_getCString(str)} + ':' + QString::number(line) +
+           ':' + QString::number(column);
+  ::clang_disposeString(str);
+  return retval;
 }
