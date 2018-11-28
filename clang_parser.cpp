@@ -86,6 +86,7 @@ clang_parser::create_description_from(const QString &file_name,
 
   delete[] args;
 
+  // if we not create translation unit
   switch (error) {
   case CXError_Success:
     break;
@@ -111,7 +112,7 @@ clang_parser::create_description_from(const QString &file_name,
   list_of_interfaces.push_back(interface_description{});
   list_of_interfaces.back().header = file_name;
 
-  // here we get all warnings and errors while compile
+  // here we get all errors while compile, and if it was be - throw exception
   auto root = ::clang_getTranslationUnitCursor(locker.unit);
   for (unsigned i{}; i < ::clang_getNumDiagnostics(locker.unit); ++i) {
     CXDiagnostic diagnostic = ::clang_getDiagnostic(locker.unit, i);
@@ -302,11 +303,15 @@ bool clang_parser::generate_xml_file(const interface_description &description,
       QStringList full_class_name;
       full_class_name.push_front(get_spelling_string(cursor));
       while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit) {
-        full_class_name.push_front(get_spelling_string(temp));
-        temp = ::clang_getCursorSemanticParent(temp);
         if (::clang_getCursorKind(temp) == ::CXCursor_FirstInvalid) {
           break;
         }
+        QString name_of_namespace = get_spelling_string(temp);
+        // namespace can be void (anonimus), so, we can not add void namespace
+        if (!name_of_namespace.isEmpty()) {
+          full_class_name.push_front(get_spelling_string(temp));
+        }
+        temp = ::clang_getCursorSemanticParent(temp);
       }
 
       // if it is template we find all template parameters
@@ -393,10 +398,10 @@ bool clang_parser::generate_xml_file(const interface_description &description,
     if (inheritace_class.isEmpty()) {
       CXCursor temp = ::clang_getCursorSemanticParent(parent);
       while (::clang_getCursorKind(temp) != CXCursor_TranslationUnit) {
-        temp = ::clang_getCursorSemanticParent(temp);
         if (::clang_getCursorKind(temp) == ::CXCursor_FirstInvalid) {
           break;
         }
+        temp = ::clang_getCursorSemanticParent(temp);
       }
 
       inheritace_class =
